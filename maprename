@@ -1,0 +1,163 @@
+# 2012 Jens Kafitz
+#
+# Syntax:
+#
+# perl maprename
+# -s [sourcefolder] [sourceconvention] [targetconvention] -nn
+# [newname] -u -c -p
+#
+# Flags:
+#
+# -s				sourcefolder, if left out current folder
+# [srcconv]		mari,zb,zbrush,mb,mudbox
+# [trgtconv]		mari,zb,zbrush,mb,mudbox
+# -nn				set custom filename
+# -u				ignore excess underscores
+# -c				copy and rename to folder
+# -p				preview result
+#
+#
+#
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+# Mari, Zbrush=ZB, Mudbox=MB
+my %P=(
+  'SOURCE_FOLDER'=>'./',
+  'OS'=>'linux'
+);
+
+parse_params();
+rename_files();
+
+exit(0);
+
+sub rename_files
+{
+  if ($P{'OS'} eq 'windows')
+    {
+      if (!exists $P{'DEST_FOLDER'} or $P{'DEST_FOLDER'} eq '.') { $P{'OP'}='move'; }
+      else { $P{'OP'}='copy'; }
+    }
+  else
+    {
+      if (!exists $P{'DEST_FOLDER'} or $P{'DEST_FOLDER'} eq '.') { $P{'OP'}='mv'; }
+      else { $P{'OP'}='cp'; }
+    }
+
+  if (!-d $P{'DEST_FOLDER'}) { mkdir($P{'DEST_FOLDER'}) || die 'ERROR: Unable to create '.$P{'DEST_FOLDER'}."\n"; }
+
+  foreach (glob($P{'SOURCE_FOLDER'}.'/*'))
+  {
+    if (($P{'SOURCE_CONV'} eq 'mari' and $_ !~ /(([^\/]+)[\_\.]((\d{4,}))(\.[^\.\/]+))$/i) or
+        ($P{'SOURCE_CONV'} ne 'mari' and $_ !~ /(([^\/]+)\_u(\d+)\_v(\d+)(\.[^\.\/]+))/i))
+      { next; }
+
+    my ($s_file,$pre_file,$ext_file,$d_file)=($1,$2,$5,'');
+
+    if (exists $P{'SUBSTITUTE'}) { $pre_file=$P{'SUBSTITUTE'}; }
+    if (!exists $P{'NO_STRIP_UNDERSCORES_ZB_MB'}) { $pre_file=~s/\_//g; }
+
+    if ($P{'SOURCE_CONV'} eq 'mari')
+      {
+        my $udim=$3;
+
+        my $v=($udim-1000)/10;
+        if ($v > int($v)) { $v=int($v); $v++; }
+
+        my $u=($udim-1000)%10;
+        if ($u == 0) { $u=10; }
+
+        if ($P{'DEST_CONV'} eq 'zbrush') { $v--; $u--; }
+
+        $d_file=$pre_file.'_u'.$u.'_v'.$v.$ext_file;
+      }
+    else
+      {
+        my ($u,$v)=($3,$4);
+
+        if ($P{'DEST_CONV'} eq 'mari')
+          {
+            if ($P{'SOURCE_CONV'} eq 'zbrush') { $v++; $u++; }
+            my $udim=$v*10+1000+$u-10;
+
+            $d_file=$pre_file.'_'.$udim.$ext_file;
+          }
+        elsif ($P{'DEST_CONV'} eq 'zbrush')
+          {
+            $v--; $u--;
+            $d_file=$pre_file.'_u'.$u.'_v'.$v.$ext_file;
+          }
+        else
+          {
+            $v++; $u++;
+            $d_file=$pre_file.'_u'.$u.'_v'.$v.$ext_file;
+          }
+      }
+
+    if (exists $P{'PREVIEW'}) { print $s_file,"\t",'=>',"\t",$d_file,"\n"; }
+    else
+      {
+        if (-f $P{'DEST_FOLDER'}.'/'.$d_file) { unlink($P{'DEST_FOLDER'}.'/'.$d_file); }
+        my $cmd=$P{'OP'}.' "'.$_.'" "'.$P{'DEST_FOLDER'}.'/'.$d_file.'"';
+        `$cmd`;
+      }
+
+  }# foreach
+  return;
+}# rename files
+
+sub parse_params
+{
+  my $i=0;
+  while (defined $ARGV[$i])
+  {
+    if ($ARGV[$i] eq '-s') { $P{'SOURCE_FOLDER'}=$ARGV[$i+1]; $i++; }
+    elsif ($ARGV[$i] eq '-c') { $P{'DEST_FOLDER'}='-c'; }
+    elsif ($ARGV[$i] eq '-u') { $P{'NO_STRIP_UNDERSCORES_ZB_MB'}=''; }
+    elsif ($ARGV[$i] eq '-p') { $P{'PREVIEW'}=''; }
+    elsif ($ARGV[$i] eq '-nn') { $P{'SUBSTITUTE'}=$ARGV[$i+1]; $i++; }
+    elsif ($ARGV[$i] =~ /^(Mari|Zbrush|ZB|Mudbox|MB)$/i)
+      {
+        my $conv=lc($ARGV[$i]);
+        if ($conv eq 'zb') { $conv='zbrush'; }
+        if ($conv eq 'mb')  {$conv='mudbox'; }
+
+        if (exists $P{'SOURCE_CONV'}) { $P{'DEST_CONV'}=$conv; }
+        else { $P{'SOURCE_CONV'}=$conv; }
+      }
+    else
+      {
+        print STDERR 'ERROR: Unknown parametr found: ',$ARGV[$i],"\n";
+        exit;
+      }
+
+    $i++;
+  }
+
+  if (exists $P{'DEST_FOLDER'} and $P{'DEST_FOLDER'} eq '-c')
+    {
+      $P{'DEST_FOLDER'}=$P{'SOURCE_FOLDER'}.'/'.$P{'DEST_CONV'}.'/';
+    }
+
+
+  if (!exists $P{'DEST_FOLDER'}) { $P{'DEST_FOLDER'}='.'; }
+
+  if (!exists $P{'SOURCE_CONV'} or !exists $P{'DEST_CONV'})
+    {
+      print STDERR 'ERROR: No source/destination convention specified.',"\n";
+      exit;
+    }
+
+  if (exists $P{'SOURCE_CONV'} and exists $P{'DEST_CONV'} and $P{'SOURCE_CONV'} eq $P{'DEST_CONV'})
+    {
+      print STDERR 'ERROR: Source convention equals to destination convention.',"\n";
+      exit;
+    }
+
+  if (exists $ENV{'OS'} and $ENV{'OS'} =~ /win/i) { $P{'OS'}='windows'; }
+
+  return;
+}
